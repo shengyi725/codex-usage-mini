@@ -1,0 +1,14 @@
+﻿# Generated outputs and local state
+dist/
+.local/
+*.log
+*.user
+*.suo
+.vs/
+preferences.json
+preferences.json.tmp
+docs/ui-smoke.txt
+# Credentials never belong in this project.
+auth.json
+.env
+.env.*

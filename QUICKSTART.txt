@@ -1,0 +1,24 @@
+﻿CODEX USAGE MINI - QUICK START
+
+1. Keep CodexUsageMini.exe and CodexUsageMini.exe.config together.
+2. Install Codex for Windows and sign in with your ChatGPT account.
+3. Double-click CodexUsageMini.exe. No API key or installer is needed.
+
+Colors use allowance remaining:
+  Green: more than 50%
+  Orange: 10% to 50%, inclusive
+  Red: less than 10%
+  Gray: unavailable or stale reading
+
+Drag the heading to move. Pin toggles always on top.
+Minus or Esc hides to tray. Double-click the tray icon to restore.
+Refresh or F5 updates usage. X quits.
+Right-click the widget or tray icon to preview all three colors.
+Refresh exits preview mode and returns to live data.
+
+Updates automatically every 60 seconds. Multiple reported limits are
+supported; the lowest remaining allowance is the large number.
+The app shows allowance percentages and reset times, not tokens left.
+
+Requires Windows 10/11, .NET Framework 4.8, and native codex.exe.
+To choose codex.exe explicitly, set CODEX_USAGE_MINI_CODEX to its full path.
