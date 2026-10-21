@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -23,6 +23,7 @@ namespace CodexUsageMini
     {
         public readonly List<QuotaWindow> Windows = new List<QuotaWindow>();
         public string Plan;
+        public string AccountKey;
         public bool Blocked;
         public DateTimeOffset FetchedAt;
         public QuotaWindow Limiting { get { return Windows.OrderBy(w => w.Remaining).FirstOrDefault(); } }
@@ -79,6 +80,8 @@ namespace CodexUsageMini
             if (root == null) throw new FormatException("Invalid usage response.");
             var result = Obj(root, "result") ?? root;
             var snapshot = new UsageSnapshot { FetchedAt = now, Blocked = Value(result, "ordinaryUsageAllowed") is bool && !(bool)Value(result, "ordinaryUsageAllowed") };
+            string accountId = Value(result, "accountId") as string;
+            snapshot.AccountKey = String.IsNullOrEmpty(accountId) ? null : HistoryImporter.Hash(accountId);
             var buckets = Obj(result, "rateLimitsByLimitId");
             if (buckets != null && buckets.Count > 0)
             {

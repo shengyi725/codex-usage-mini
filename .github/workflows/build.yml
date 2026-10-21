@@ -16,4 +16,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: CodexUsageMini-Windows
-          path: dist/CodexUsageMini-portable.zip
+          path: dist/CodexUsageMini-v0.2.0-portable.zip

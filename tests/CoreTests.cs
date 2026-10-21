@@ -22,7 +22,13 @@ internal static class CoreTests
     private static UsageSnapshot Parse(string fields) { return UsageModel.Parse("{" + fields + "}", Now); }
     public static int Main(string[] args)
     {
-        if (args.Length > 0 && args[0] == "--live-check") { var live = new CodexClient().ReadAsync(CancellationToken.None).GetAwaiter().GetResult(); Console.WriteLine("LIVE PASS: " + live.Windows.Count + " window(s), " + UsageModel.Percent(live.Limiting.Remaining) + " remaining."); return 0; }
+        if (args.Length > 0 && args[0] == "--live-check") { try { var live = new CodexClient().ReadAsync(CancellationToken.None).GetAwaiter().GetResult(); Console.WriteLine("LIVE PASS: " + live.Windows.Count + " window(s), " + UsageModel.Percent(live.Limiting.Remaining) + " remaining."); return 0; } catch { Console.WriteLine("LIVE CHECK UNAVAILABLE: Codex could not return allowance data."); return 1; } }
+        if (args.Length > 0 && args[0] == "--history-live-check") { var history = new HistoryImporter(Path.Combine(LocalData.DirectoryPath, "usage-history.json")); var result = history.Refresh(CancellationToken.None); var events = history.Snapshot(); Console.WriteLine("LOCAL HISTORY: " + events.Count + " events, " + HistoryQuery.Models(events).Count + " models; more=" + result.More + "; " + result.Notice); return 0; }
+        if (args.Length > 0 && args[0] == "--subscription-live-check") {
+            var prefs = Preferences.Load(); var result = CodexSubscriptionReader.Read(HistoryImporter.CodexHome, prefs.CachedAccountKey, DateTimeOffset.Now, CancellationToken.None);
+            if (result.Snapshot == null) { Console.WriteLine("SUBSCRIPTION UNAVAILABLE: " + result.Notice); return 1; }
+            Console.WriteLine("SUBSCRIPTION PASS: account matched; paid through " + result.Snapshot.PaidThrough.ToLocalTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "; source checked " + (result.Snapshot.CheckedAt.HasValue ? result.Snapshot.CheckedAt.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "unknown") + ". No manual date used."); return 0;
+        }
         if (args.Length > 0 && args[0] == "--fake-server") return FakeServer(args.Length > 1 ? args[1] : "ok");
         try
         {
@@ -63,8 +69,10 @@ internal static class CoreTests
             Check(UsageModel.Countdown(Now.AddHours(2).AddMinutes(5), Now) == "2h 5m", "Countdown hours");
             Check(UsageModel.Countdown(Now.AddSeconds(2), Now) == "1m", "Countdown under a minute");
             Check(UsageModel.Countdown(Now, Now) == "Refreshing soon", "Reset doesn't invent fresh quota");
+            HistoryTests.Run(Check);
+            SubscriptionTests.Run(Check);
             ProtocolTests().GetAwaiter().GetResult();
-            Console.WriteLine("PASS: " + passed + " allowance and protocol checks.");
+            Console.WriteLine("PASS: " + passed + " allowance, protocol, history, subscription, and preference checks.");
             return 0;
         }
         catch (Exception ex) { Console.Error.WriteLine("FAIL: " + ex.Message); return 1; }

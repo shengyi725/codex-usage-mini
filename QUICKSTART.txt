@@ -1,24 +1,47 @@
-﻿CODEX USAGE MINI - QUICK START
+CODEX USAGE MINI v0.2.0 - WINDOWS PORTABLE
 
-1. Keep CodexUsageMini.exe and CodexUsageMini.exe.config together.
-2. Install Codex for Windows and sign in with your ChatGPT account.
-3. Double-click CodexUsageMini.exe. No API key or installer is needed.
+Keep CodexUsageMini.exe and CodexUsageMini.exe.config together.
+Install Codex for Windows, sign in with ChatGPT, and open the EXE.
+Requires Windows 10/11 and .NET Framework 4.8. No API key is needed.
 
-Colors use allowance remaining:
-  Green: more than 50%
-  Orange: 10% to 50%, inclusive
-  Red: less than 10%
-  Gray: unavailable or stale reading
+ALLOWANCE
+Green: more than 50% left. Orange: 10-50%, inclusive. Red: below 10%.
+Gray: unavailable or stale. Refreshes every 60 seconds.
 
-Drag the heading to move. Pin toggles always on top.
-Minus or Esc hides to tray. Double-click the tray icon to restore.
-Refresh or F5 updates usage. X quits.
-Right-click the widget or tray icon to preview all three colors.
-Refresh exits preview mode and returns to live data.
+HOURLY AND MODEL HISTORY
+Click the history icon or choose Hourly usage and models from the menu.
+Hours shows activity and tokens by hour. Models compares recorded input,
+cached input, output, totals, and event counts. Choose 24h, 7d, 30d, or 90d.
+Statistics are imported from local Codex logs and retained for 90 days.
+Export CSV saves hourly model totals. Other devices are not included.
+Token totals are not the same as model-specific subscription quota charges.
 
-Updates automatically every 60 seconds. Multiple reported limits are
-supported; the lowest remaining allowance is the large number.
-The app shows allowance percentages and reset times, not tokens left.
+APPEARANCE AND PLAN
+Click the gear or choose Appearance and plan in the widget/tray menu.
+The full widget starts at its original readable size. Click Percentage only
+beside the gear for the small view. Hover and click its expand arrow to return.
+Optional full-view scaling is 50-125%; compact text stays readable.
+Transparency: 0-50%. Themes: Daylight, Dark, Ocean, Forest.
+Subscription detection reads the paid-through date from Codex local sign-in
+metadata automatically. Check now rereads it; Codex refreshes the source.
+The source check time is shown in Settings; old readings say last known.
+Paid through is a subscription-period end; renewal status may be unknown.
+A manual expiry remains as a fallback and is never overwritten.
+Automatic detection can be switched off in Settings. It requires readable
+file-based ChatGPT sign-in; secure-store-only sign-ins may not expose dates.
+No credential is sent or saved. Personal dates and history stay local.
 
-Requires Windows 10/11, .NET Framework 4.8, and native codex.exe.
-To choose codex.exe explicitly, set CODEX_USAGE_MINI_CODEX to its full path.
+CONTROLS
+Click Percentage only beside the gear for the small percentage-only view.
+Hover over the small window and click the expand arrow to restore it.
+Clicking the percentage or pressing Ctrl+M also switches views.
+Drag the heading, or drag the compact percentage, to move the widget.
+Hover over the compact window (or use Tab) to reveal its buttons.
+History and appearance open separately only when requested; right-click
+also opens the menu. Pin toggles always on top.
+Minus/Esc hides to tray; double-click the tray icon to restore.
+Refresh/F5 refreshes allowance and exits color preview. X quits.
+The tray menu remains full size even when the widget is small.
+
+Set CODEX_USAGE_MINI_CODEX to an explicit codex.exe path if needed.
+Set CODEX_USAGE_MINI_DATA to choose the private data folder.

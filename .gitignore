@@ -12,3 +12,8 @@ docs/ui-smoke.txt
 auth.json
 .env
 .env.*
+
+# Private history, preferences, and personal exports
+usage-history.json*
+preferences.json*
+Codex-usage-*.csv
