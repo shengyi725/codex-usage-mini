@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
@@ -100,6 +101,9 @@ internal static class CoreTests
 
     private static int FakeServer(string mode)
     {
+        // Emulate Codex UTF-8 pipes independently of the Windows console code page.
+        Console.SetIn(new StreamReader(Console.OpenStandardInput(), new UTF8Encoding(false), true));
+        Console.SetOut(new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true });
         var serializer = new JavaScriptSerializer();
         var first = serializer.DeserializeObject(Console.ReadLine()) as Dictionary<string, object>;
         if ((string)first["method"] != "initialize") return 2;
