@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -57,6 +57,7 @@ namespace CodexUsageMini
         private TextBlock brandTitle, brandCaption;
         private readonly System.Collections.Generic.List<Button> actionButtons = new System.Collections.Generic.List<Button>();
         private HistoryImporter history;
+        private AllowanceHistory allowanceHistory;
         private HistoryWindow historyWindow;
         private SettingsWindow settingsWindow;
         private bool historyBusy;
@@ -115,7 +116,7 @@ namespace CodexUsageMini
             footer.Foreground = Muted;
             footer.VerticalAlignment = VerticalAlignment.Center;
             var utilities = new StackPanel { Orientation = Orientation.Horizontal };
-            utilities.Children.Add(Action("\uE9D9", "Hourly usage and model history", delegate { OpenHistory(); }, true));
+            utilities.Children.Add(Action("\uE9D9", "Allowance, activity, and model history", delegate { OpenHistory(); }, true));
             utilities.Children.Add(Action("\uE713", "Appearance and plan settings", delegate { OpenSettings(); }, true));
             compactView = Action("Percentage only", "Switch to the smaller percentage-only view", delegate { ToggleCompact(); }, false);
             compactView.Width = 116; compactView.FontSize = 11; compactView.Margin = new Thickness(8, 0, 0, 0);
@@ -153,11 +154,11 @@ namespace CodexUsageMini
             SizeChanged += delegate { ClampToWorkArea(); };
             ContextMenu = MakeMenu();
             refreshTimer.Interval = TimeSpan.FromSeconds(60);
-            refreshTimer.Tick += async delegate { if (preview == null) await RefreshAsync(); };
+            refreshTimer.Tick += async delegate { await RefreshAsync(); };
             clockTimer.Interval = TimeSpan.FromSeconds(15);
             clockTimer.Tick += delegate { Render(); };
             Loaded += async delegate {
-                if (!testMode) { history = new HistoryImporter(System.IO.Path.Combine(LocalData.DirectoryPath, "usage-history.json")); MakeTray(); refreshTimer.Start(); clockTimer.Start(); historyTimer.Start(); StartHistoryRefresh(); await Task.WhenAll(RefreshSubscriptionAsync(), RefreshAsync()); }
+                if (!testMode) { history = new HistoryImporter(System.IO.Path.Combine(LocalData.DirectoryPath, "usage-history.json")); allowanceHistory = new AllowanceHistory(System.IO.Path.Combine(LocalData.DirectoryPath, "allowance-history")); MakeTray(); refreshTimer.Start(); clockTimer.Start(); historyTimer.Start(); StartHistoryRefresh(); await Task.WhenAll(RefreshSubscriptionAsync(), RefreshAsync()); }
             };
             Closed += delegate {
                 lifetime.Cancel(); refreshTimer.Stop(); clockTimer.Stop(); historyTimer.Stop();
@@ -249,8 +250,8 @@ namespace CodexUsageMini
         public void OpenHistory()
         {
             if (historyWindow != null) { historyWindow.Show(); historyWindow.Activate(); return; }
-            historyWindow = new HistoryWindow(delegate { return history == null ? new System.Collections.Generic.List<UsageEntry>() : history.Snapshot(); }, delegate { return historyStatus; }, preferences.Theme) { Owner = this };
-            historyWindow.Closed += delegate { historyWindow = null; }; historyWindow.Show();
+            historyWindow = new HistoryWindow(delegate { return history == null ? new System.Collections.Generic.List<UsageEntry>() : history.Snapshot(); }, delegate { return historyStatus; }, preferences.Theme, delegate { return allowanceHistory == null ? new List<AllowanceReading>() : allowanceHistory.Snapshot(); }, delegate { return allowanceHistory == null ? null : allowanceHistory.Notice; }, delegate { return latest == null ? preferences.CachedAccountKey : latest.AccountKey; }) { Owner = this };
+            historyWindow.Closed += delegate { historyWindow = null; }; historyWindow.Show(); historyWindow.SelectAllowance();
         }
         private async void StartHistoryRefresh()
         {
@@ -301,6 +302,7 @@ namespace CodexUsageMini
             try {
                 UsageSnapshot data = await Task.Run(async delegate { return await new CodexClient().ReadAsync(lifetime.Token); });
                 latest = data; failed = false; problem = null;
+                if (!testMode && allowanceHistory != null) allowanceHistory.Record(data);
                 if (!testMode && (preferences.CachedPlan != data.Plan || preferences.CachedAccountKey != data.AccountKey)) { preferences.CachedPlan = data.Plan; preferences.CachedAccountKey = data.AccountKey; preferences.Save(); }
                 if (!testMode && !String.IsNullOrEmpty(preferences.PlanExpiry) && String.IsNullOrEmpty(preferences.ExpiryAccountKey) && !String.IsNullOrEmpty(data.AccountKey)) { preferences.ExpiryAccountKey = data.AccountKey; preferences.Save(); }
             }
@@ -309,7 +311,13 @@ namespace CodexUsageMini
             catch (FormatException ex) { failed = true; problem = ex.Message; }
             catch (TimeoutException ex) { failed = true; problem = ex.Message; }
             catch { failed = true; problem = "Live allowance is unavailable. Retrying automatically; local history still works."; }
-            finally { busy = false; if (!lifetime.IsCancellationRequested) { refresh.IsEnabled = true; Render(); } }
+            finally {
+                busy = false;
+                if (!lifetime.IsCancellationRequested) {
+                    if (failed && !testMode && allowanceHistory != null) allowanceHistory.RecordFailure(DateTimeOffset.UtcNow, latest == null ? preferences.CachedAccountKey : latest.AccountKey);
+                    refresh.IsEnabled = true; Render(); if (historyWindow != null) historyWindow.RefreshView();
+                }
+            }
             if (!lifetime.IsCancellationRequested) await RefreshSubscriptionAsync();
         }
 
@@ -382,6 +390,7 @@ namespace CodexUsageMini
                 var error = Text(problem ?? "Refresh to reconnect.", 11, Muted, FontWeights.Normal); error.Margin = new Thickness(0, 14, 0, 0); body.Children.Add(error);
             }
             footer.Text = busy ? "Connecting to Codex\u2026" : preview != null ? "Preview only \u00b7 refresh to return to live" : latest == null ? "Auto-refreshes every 60 seconds" : (stale ? "Last sync " : "Updated ") + latest.FetchedAt.ToLocalTime().ToString("HH:mm") + "  \u00b7  every 60s";
+            if (preview == null && allowanceHistory != null && !String.IsNullOrEmpty(allowanceHistory.Notice)) { footer.Text += " · allowance history needs attention"; footer.ToolTip = allowanceHistory.Notice; } else footer.ToolTip = null;
             if (tray != null) UpdateTray(accent, limit, stale, preview != null);
         }
 
@@ -399,7 +408,7 @@ namespace CodexUsageMini
             var menu = new ContextMenu();
             AddMenu(menu.Items, preferences.Compact ? "Show full widget" : "Show percentage only", delegate { ToggleCompact(); });
             AddMenu(menu.Items, "Refresh now", async delegate { preview = null; await RefreshAsync(); });
-            AddMenu(menu.Items, "Hourly usage and models", delegate { OpenHistory(); });
+            AddMenu(menu.Items, "Allowance, activity, and models", delegate { OpenHistory(); });
             AddMenu(menu.Items, "Appearance and plan…", delegate { OpenSettings(); });
             AddMenu(menu.Items, "Always on top", delegate { TogglePin(); });
             var colors = new MenuItem { Header = "Preview colors" };
@@ -423,7 +432,7 @@ namespace CodexUsageMini
             var viewItem = menu.Items.Add("Show percentage only", null, delegate { ToggleCompact(); ShowWidget(); });
             menu.Opening += delegate { viewItem.Text = preferences.Compact ? "Show full widget" : "Show percentage only"; };
             menu.Items.Add("Refresh now", null, async delegate { preview = null; await RefreshAsync(); });
-            menu.Items.Add("Hourly usage and models", null, delegate { OpenHistory(); });
+            menu.Items.Add("Allowance, activity, and models", null, delegate { OpenHistory(); });
             menu.Items.Add("Appearance and plan…", null, delegate { OpenSettings(); });
             menu.Items.Add("Always on top", null, delegate { TogglePin(); });
             menu.Items.Add(new Forms.ToolStripSeparator());
@@ -540,12 +549,13 @@ namespace CodexUsageMini
                                 window.CheckCompactView(folder);
                                 var samples = new System.Collections.Generic.List<UsageEntry>();
                                 for (int hour = 0; hour < 24; hour++) { if (hour % 4 == 0) continue; samples.Add(new UsageEntry { Id = "demo-" + hour, UtcTicks = DateTimeOffset.UtcNow.AddHours(-hour).UtcDateTime.Ticks, Model = hour % 3 == 0 ? "gpt-6-luna" : "gpt-6.1-sol", Input = (24-hour)*12000, Cached = (24-hour)*8000, Output = (24-hour)*700, Total = (24-hour)*12700, Precise = true }); }
-                                var insights = new HistoryWindow(delegate { return samples; }, delegate { return "Synthetic preview"; }, "Ocean"); insights.Show(); insights.RefreshView(); Ui.Capture(insights, Path.Combine(folder, "preview-history-hours.png")); insights.SelectModels(); Ui.Capture(insights, Path.Combine(folder, "preview-history-models.png")); insights.Close();
+                                for (int day = 1; day < 90; day++) { if (day % 6 == 0) continue; samples.Add(new UsageEntry { Id = "demo-day-" + day, UtcTicks = DateTimeOffset.UtcNow.AddDays(-day).UtcDateTime.Ticks, Model = "gpt-6.1-sol", Input = (90-day)*12000, Cached = (90-day)*8000, Output = (90-day)*700, Total = (90-day)*12700, Precise = true }); }
+                                var insights = new HistoryWindow(delegate { return samples; }, delegate { return "Synthetic preview"; }, "Ocean"); insights.Show(); insights.RefreshView(); Ui.Capture(insights, Path.Combine(folder, "preview-history-hours.png")); insights.SelectModels(); Ui.Capture(insights, Path.Combine(folder, "preview-history-models.png")); insights.CheckTimeRanges(folder); insights.CheckAllowanceView(folder); insights.Close();
                                 window.PreviewSubscription(new SubscriptionSnapshot { AccountKey = HistoryImporter.Hash("synthetic-preview"), Plan = "pro", PaidThrough = DateTimeOffset.Now.AddDays(14), CheckedAt = DateTimeOffset.Now.AddHours(-1) });
                                 if (!window.SubscriptionInfo().Automatic || window.SubscriptionInfo().Heading != "PAID THROUGH") throw new Exception("Automatic subscription display failed");
                                 window.Capture(Path.Combine(folder, "preview-subscription.png"));
                                 window.OpenSettings(); var settings = app.Windows.OfType<SettingsWindow>().First(); Ui.Capture(settings, Path.Combine(folder, "preview-settings.png")); settings.Close();
-                                File.WriteAllText(Path.Combine(folder, "ui-smoke.txt"), "PASS: allowance states, pin/hide/show, four themes, proportional half scale, transparency, compact percentage colors and stale state, fixed readable compact size, explicit compact/expand buttons and size restoration, hourly/model history, automatic subscription display, settings.\n");
+                                File.WriteAllText(Path.Combine(folder, "ui-smoke.txt"), "PASS: allowance states, pin/hide/show, four themes, proportional half scale, transparency, compact percentage colors and stale state, fixed readable compact size, explicit compact/expand buttons and size restoration, hourly/model history, 7/30/90-day charts and hourly restoration, allowance chart, reset signals, empty recording and control restoration, automatic subscription display, settings.\n");
                             } catch (Exception ex) { Environment.ExitCode = 1; File.WriteAllText(Path.Combine(folder, "ui-smoke.txt"), "FAIL: " + ex.Message); }
                             window.Close();
                         }));

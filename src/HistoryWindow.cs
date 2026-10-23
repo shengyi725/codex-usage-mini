@@ -12,7 +12,7 @@ using System.Windows.Threading;
 
 namespace CodexUsageMini
 {
-    public sealed class HistoryWindow : Window
+    public sealed partial class HistoryWindow : Window
     {
         private readonly Func<List<UsageEntry>> entries;
         private readonly Func<string> status;
@@ -23,9 +23,11 @@ namespace CodexUsageMini
         private readonly CheckBox internalModels;
         private readonly TextBlock coverage;
         private int tab;
-        public HistoryWindow(Func<List<UsageEntry>> source, Func<string> importStatus, string theme)
+        public HistoryWindow(Func<List<UsageEntry>> source, Func<string> importStatus, string theme) : this(source, importStatus, theme, null, null, null) { }
+        public HistoryWindow(Func<List<UsageEntry>> source, Func<string> importStatus, string theme, Func<List<AllowanceReading>> allowance, Func<string> recordingNotice, Func<string> account)
         {
             entries = source; status = importStatus; skin = Palette.For(theme);
+            allowanceSource = allowance; allowanceNotice = recordingNotice; allowanceAccount = account;
             Title = "Codex Usage Mini · Usage history";
             Width = 900; Height = 680; MinWidth = 740; MinHeight = 520;
             FontFamily = new FontFamily("Segoe UI"); FontSize = 13;
@@ -34,9 +36,10 @@ namespace CodexUsageMini
             var layout = new DockPanel { Margin = new Thickness(24) };
             var header = new StackPanel(); DockPanel.SetDock(header, Dock.Top); layout.Children.Add(header);
             header.Children.Add(Ui.Text("Your usage, over time", 25, skin.Ink));
-            var subtitle = Ui.Text("Observed token usage from this local Codex profile. Retained for 90 days.", 12, skin.Muted); subtitle.Margin = new Thickness(0, 5, 0, 18); header.Children.Add(subtitle);
+            var subtitle = Ui.Text("Token activity and independently recorded allowance history. Retained for 90 days.", 12, skin.Muted); subtitle.Margin = new Thickness(0, 5, 0, 18); header.Children.Add(subtitle);
             var tools = new WrapPanel { Margin = new Thickness(0, 0, 0, 12) };
-            tools.Children.Add(Ui.Button("Hours", delegate { tab = 0; RefreshView(); }, skin));
+            tools.Children.Add(Ui.Button("Allowance", delegate { SelectAllowance(); }, skin));
+            tools.Children.Add(Ui.Button("Activity", delegate { tab = 0; RefreshView(); }, skin));
             tools.Children.Add(Ui.Button("Models", delegate { tab = 1; RefreshView(); }, skin));
             range = new ComboBox { ItemsSource = new[] { "Last 24 hours", "Last 7 days", "Last 30 days", "Last 90 days" }, SelectedIndex = 0, Width = 132, Margin = new Thickness(8, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
             System.Windows.Automation.AutomationProperties.SetName(range, "History time range");
@@ -44,6 +47,9 @@ namespace CodexUsageMini
             internalModels = new CheckBox { Content = "Include internal review models", Foreground = skin.Muted, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 10, 0) };
             internalModels.Checked += delegate { RefreshView(); }; internalModels.Unchecked += delegate { RefreshView(); }; tools.Children.Add(internalModels);
             tools.Children.Add(Ui.Button("Export CSV", delegate { Export(); }, skin)); header.Children.Add(tools);
+            allowanceSeries = new ComboBox { Width = 260, DisplayMemberPath = "Value", SelectedValuePath = "Key", Margin = new Thickness(0, 0, 0, 10), HorizontalAlignment = HorizontalAlignment.Left, Visibility = Visibility.Collapsed };
+            System.Windows.Automation.AutomationProperties.SetName(allowanceSeries, "Allowance window");
+            allowanceSeries.SelectionChanged += AllowanceSeriesChanged; header.Children.Add(allowanceSeries);
             coverage = Ui.Text("", 11, skin.Muted); coverage.Margin = new Thickness(0, 0, 0, 12); header.Children.Add(coverage);
             layout.Children.Add(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
             Content = layout;
@@ -53,31 +59,35 @@ namespace CodexUsageMini
         public void SelectModels() { tab = 1; RefreshView(); }
         public void SelectHours() { tab = 0; RefreshView(); }
         private int Days { get { return range.SelectedIndex == 0 ? 1 : range.SelectedIndex == 1 ? 7 : range.SelectedIndex == 2 ? 30 : 90; } }
-        private List<UsageEntry> Selected()
+        private List<UsageEntry> Selected(HistoryRange period)
         {
-            var now = DateTimeOffset.UtcNow;
-            return HistoryQuery.Select(entries(), now.AddDays(-Days), now.AddSeconds(1), internalModels.IsChecked == true);
+            return HistoryQuery.Select(entries(), period.Start, period.End, internalModels.IsChecked == true);
         }
         public void RefreshView()
         {
             if (range == null || internalModels == null || coverage == null) return;
-            var selected = Selected(); body.Children.Clear();
+            var period = HistoryRange.Create(Days, DateTimeOffset.UtcNow, TimeZoneInfo.Local);
+            body.Children.Clear();
+            internalModels.Visibility = tab == 2 ? Visibility.Collapsed : Visibility.Visible;
+            allowanceSeries.Visibility = tab == 2 ? Visibility.Visible : Visibility.Collapsed;
+            if (tab == 2) { RenderAllowance(period); return; }
+            var selected = Selected(period);
             string extra = status();
-            coverage.Text = "Local records only · " + selected.Count.ToString("N0") + " usage events" + (String.IsNullOrEmpty(extra) ? "" : " · " + extra);
+            coverage.Text = period.Description + "\nLocal records only · " + selected.Count.ToString("N0") + " usage events" + (String.IsNullOrEmpty(extra) ? "" : " · " + extra);
             if (selected.Count == 0)
             {
                 body.Children.Add(Ui.Text("No recorded usage in this range yet", 20, skin.Ink));
                 var empty = Ui.Text("Available local session history is imported automatically. Keep Codex and this widget running to record new activity. Cloud-only activity and other devices are not included.", 13, skin.Muted); empty.Margin = new Thickness(0, 12, 0, 0); body.Children.Add(empty); return;
             }
             long total = selected.Sum(e => e.Total);
-            var hours = HistoryQuery.Hours(selected);
+            var timeline = HistoryQuery.Timeline(selected, period);
             var models = HistoryQuery.Models(selected);
             var cards = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 20) };
             cards.Children.Add(Card("OBSERVED TOKENS", HistoryQuery.Compact(total)));
-            cards.Children.Add(Card("ACTIVE HOURS", hours.Count.ToString(CultureInfo.InvariantCulture)));
+            cards.Children.Add(Card(period.Daily ? "ACTIVE DAYS" : "ACTIVE HOURS", timeline.Count(g => g.Events > 0).ToString(CultureInfo.InvariantCulture)));
             cards.Children.Add(Card("MODELS USED", models.Count.ToString(CultureInfo.InvariantCulture)));
             body.Children.Add(cards);
-            if (tab == 0) RenderHours(selected, hours); else RenderModels(models, total);
+            if (tab == 0) RenderActivity(timeline, period); else RenderModels(models, total);
             var note = Ui.Text("Cached input is part of input; reasoning is part of output. Total tokens include cached input. These records do not reveal each model’s charge against your plan allowance.", 11, skin.Muted); note.Margin = new Thickness(0, 18, 0, 0); body.Children.Add(note);
         }
         private Border Card(string label, string value)
@@ -85,46 +95,59 @@ namespace CodexUsageMini
             var stack = new StackPanel(); stack.Children.Add(Ui.Text(label, 10, skin.Muted)); var text = Ui.Text(value, 25, skin.Ink); text.Margin = new Thickness(0, 5, 0, 0); stack.Children.Add(text);
             return new Border { Child = stack, Background = skin.Surface, CornerRadius = new CornerRadius(9), Padding = new Thickness(15), Margin = new Thickness(0, 0, 9, 0) };
         }
-        private void RenderHours(List<UsageEntry> selected, List<UsageGroup> hours)
+        private void RenderActivity(List<UsageGroup> timeline, HistoryRange period)
         {
-            body.Children.Add(Ui.Text(Days == 1 ? "Hourly activity · last 24 hours" : "Hour-of-day pattern · selected range", 17, skin.Ink));
-            int columns = Days == 1 ? 25 : 24;
-            long[] totals = new long[columns]; int[] counts = new int[columns]; string[] labels = new string[columns]; string[] tips = new string[columns];
-            if (Days == 1)
-            {
-                long current = DateTime.UtcNow.Ticks / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour;
-                for (int i = 0; i < columns; i++)
-                {
-                    long ticks = current - (columns - 1 - i) * TimeSpan.TicksPerHour;
-                    var group = hours.FirstOrDefault(h => h.UtcTicks == ticks);
-                    var time = new DateTimeOffset(ticks, TimeSpan.Zero).ToLocalTime();
-                    totals[i] = group == null ? 0 : group.Total; counts[i] = group == null ? 0 : group.Events;
-                    labels[i] = time.ToString("HH"); tips[i] = time.ToString("MMM d HH:mm zzz", CultureInfo.InvariantCulture);
-                }
-            }
-            else
-            {
-                foreach (var entry in selected) { int hour = new DateTimeOffset(entry.UtcTicks, TimeSpan.Zero).ToLocalTime().Hour; totals[hour] += entry.Total; counts[hour]++; }
-                for (int i = 0; i < 24; i++) { labels[i] = i.ToString("00"); tips[i] = labels[i] + ":00–" + labels[i] + ":59, all selected days"; }
-            }
-            long maximum = Math.Max(1, totals.Max());
-            var bars = new UniformGrid { Columns = columns, Margin = new Thickness(0, 15, 0, 6) };
+            body.Children.Add(Ui.Text(period.Daily ? "Daily activity · last " + period.Days + " days" : "Hourly activity · last 24 hours", 17, skin.Ink));
+            int columns = timeline.Count;
+            long maximum = Math.Max(1, timeline.Max(g => g.Total));
+            var bars = new UniformGrid { Columns = columns, Margin = new Thickness(0, 15, 0, 0) };
             for (int i = 0; i < columns; i++)
             {
-                var column = new StackPanel { Margin = new Thickness(2, 0, 2, 0), ToolTip = tips[i] + "\n" + totals[i].ToString("N0") + " tokens · " + counts[i] + " events" };
-                var track = new Grid { Height = 120, Background = skin.Surface };
-                track.Children.Add(new Border { Height = totals[i] == 0 ? 2 : Math.Max(4, (double)totals[i] / maximum * 120), Background = totals[i] == 0 ? skin.Track : skin.Highlight, VerticalAlignment = VerticalAlignment.Bottom, CornerRadius = new CornerRadius(2) });
-                column.Children.Add(track);
-                var label = Ui.Text(i % 3 == 0 || i == columns - 1 ? labels[i] : "", 10, skin.Muted); label.HorizontalAlignment = HorizontalAlignment.Center; label.Margin = new Thickness(0, 5, 0, 0); column.Children.Add(label); bars.Children.Add(column);
+                var group = timeline[i];
+                var time = TimeZoneInfo.ConvertTime(new DateTimeOffset(group.UtcTicks, TimeSpan.Zero), period.Zone);
+                string tip = time.ToString(period.Daily ? "ddd, MMM d, yyyy" : "MMM d, yyyy HH:mm zzz", CultureInfo.InvariantCulture);
+                if (period.Daily && i == columns - 1) tip += " · today so far";
+                var track = new Grid { Height = 120, Background = skin.Surface, Margin = new Thickness(columns > 30 ? 1 : 2, 0, columns > 30 ? 1 : 2, 0), ToolTip = tip + "\n" + group.Total.ToString("N0") + " tokens · " + group.Events.ToString("N0") + " events" };
+                track.Children.Add(new Border { Height = group.Total == 0 ? 2 : Math.Max(4, (double)group.Total / maximum * 120), Background = group.Total == 0 ? skin.Track : skin.Highlight, VerticalAlignment = VerticalAlignment.Bottom, CornerRadius = new CornerRadius(2) });
+                bars.Children.Add(track);
             }
             body.Children.Add(bars);
-            body.Children.Add(Ui.Text("Local hour · hover a bar for tokens and activity count. Empty bars mean no observed events.", 11, skin.Muted));
-            var peak = hours.OrderByDescending(h => h.Total).First();
-            var peakText = Ui.Text("Busiest recorded hour: " + new DateTimeOffset(peak.UtcTicks, TimeSpan.Zero).ToLocalTime().ToString("MMM d, HH:mm", CultureInfo.InvariantCulture) + " · " + HistoryQuery.Compact(peak.Total) + " tokens · " + peak.Events + " events", 12, skin.Ink); peakText.Margin = new Thickness(0, 14, 0, 18); body.Children.Add(peakText);
-            AddRow(new[] { "Hour (local)", "Events", "Input", "Cached", "Output", "Total" }, true);
-            foreach (var hour in hours.OrderByDescending(h => h.UtcTicks).Take(48))
-                AddRow(new[] { new DateTimeOffset(hour.UtcTicks, TimeSpan.Zero).ToLocalTime().ToString("MMM d HH:mm zzz", CultureInfo.InvariantCulture), hour.Events.ToString("N0"), HistoryQuery.Compact(hour.Input), HistoryQuery.Compact(hour.Cached), HistoryQuery.Compact(hour.Output), HistoryQuery.Compact(hour.Total) }, false);
-            if (hours.Count > 48) body.Children.Add(Ui.Text("Showing the latest 48 active hours. Export CSV includes the full selected range.", 11, skin.Muted));
+            // Keep date labels outside the bars so long ranges retain their full width.
+            var axis = new Canvas { Height = 27, Margin = new Thickness(0, 5, 0, 0) };
+            int step = Math.Max(1, (int)Math.Ceiling((columns - 1) / 6d));
+            for (int i = 0; i < columns; i++)
+            {
+                if (i != 0 && i != columns - 1 && (i % step != 0 || columns - 1 - i < Math.Max(1, step / 2))) continue;
+                var label = Ui.Text(timeline[i].Label, 10, skin.Muted); label.TextWrapping = TextWrapping.NoWrap; label.Tag = i; axis.Children.Add(label);
+            }
+            axis.SizeChanged += delegate {
+                foreach (TextBlock label in axis.Children) {
+                    label.Measure(new Size(Double.PositiveInfinity, Double.PositiveInfinity));
+                    double x = ((int)label.Tag + .5) / columns * axis.ActualWidth - label.DesiredSize.Width / 2;
+                    Canvas.SetLeft(label, Math.Max(0, Math.Min(axis.ActualWidth - label.DesiredSize.Width, x)));
+                }
+            };
+            body.Children.Add(axis);
+            body.Children.Add(Ui.Text(period.Daily ? "Local date · one bar per day, including today so far. Hover for tokens and events. Empty bars mean no observed events." : "Local hour · hover a bar for tokens and activity count. Empty bars mean no observed events.", 11, skin.Muted));
+            var peak = timeline.OrderByDescending(g => g.Total).First();
+            var peakTime = TimeZoneInfo.ConvertTime(new DateTimeOffset(peak.UtcTicks, TimeSpan.Zero), period.Zone);
+            var peakText = Ui.Text("Busiest recorded " + (period.Daily ? "day: " : "hour: ") + peakTime.ToString(period.Daily ? "MMM d, yyyy" : "MMM d, HH:mm", CultureInfo.InvariantCulture) + " · " + HistoryQuery.Compact(peak.Total) + " tokens · " + peak.Events.ToString("N0") + " events", 12, skin.Ink); peakText.Margin = new Thickness(0, 14, 0, 18); body.Children.Add(peakText);
+            AddRow(new[] { period.Daily ? "Date (local)" : "Hour (local)", "Events", "Input", "Cached", "Output", "Total" }, true);
+            foreach (var group in timeline.AsEnumerable().Reverse().Where(g => period.Daily || g.Events > 0))
+                AddRow(new[] { TimeZoneInfo.ConvertTime(new DateTimeOffset(group.UtcTicks, TimeSpan.Zero), period.Zone).ToString(period.Daily ? "MMM d, yyyy" : "MMM d HH:mm zzz", CultureInfo.InvariantCulture), group.Events.ToString("N0"), HistoryQuery.Compact(group.Input), HistoryQuery.Compact(group.Cached), HistoryQuery.Compact(group.Output), HistoryQuery.Compact(group.Total) }, false);
+        }
+        internal void CheckTimeRanges(string folder)
+        {
+            tab = 0;
+            for (int index = 1; index <= 3; index++)
+            {
+                range.SelectedIndex = index; RefreshView(); UpdateLayout();
+                var chart = body.Children.OfType<UniformGrid>().Last();
+                if (chart.Columns != Days || chart.Children.Count != Days || !body.Children.OfType<TextBlock>().Any(t => t.Text == "Daily activity · last " + Days + " days")) throw new Exception("Daily history range did not render every date");
+                Ui.Capture(this, Path.Combine(folder, "preview-history-" + Days + "-days.png"));
+            }
+            range.SelectedIndex = 0; RefreshView();
+            if (!body.Children.OfType<TextBlock>().Any(t => t.Text == "Hourly activity · last 24 hours")) throw new Exception("Hourly history was not restored");
         }
         private void RenderModels(List<UsageGroup> models, long total)
         {
@@ -153,11 +176,12 @@ namespace CodexUsageMini
         }
         private void Export()
         {
+            if (tab == 2) { ExportAllowance(); return; }
             string profile = Path.Combine("E:\\Users", Environment.UserName, "Documents");
             var picker = new Microsoft.Win32.SaveFileDialog { Title = "Export hourly model usage", Filter = "CSV file (*.csv)|*.csv", FileName = "Codex-usage-" + DateTime.Today.ToString("yyyy-MM-dd") + ".csv", InitialDirectory = Directory.Exists(profile) ? profile : LocalData.DirectoryPath };
             if (picker.ShowDialog(this) != true) return;
             var output = new StringBuilder("hour_local,hour_utc,model,events,input_tokens,cached_input_tokens,output_tokens,reasoning_output_tokens,total_tokens\r\n");
-            foreach (var group in Selected().GroupBy(e => new { Hour = e.UtcTicks / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour, e.Model }).OrderBy(g => g.Key.Hour).ThenBy(g => g.Key.Model))
+            foreach (var group in Selected(HistoryRange.Create(Days, DateTimeOffset.UtcNow, TimeZoneInfo.Local)).GroupBy(e => new { Hour = e.UtcTicks / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour, e.Model }).OrderBy(g => g.Key.Hour).ThenBy(g => g.Key.Model))
             {
                 var stamp = new DateTimeOffset(group.Key.Hour, TimeSpan.Zero);
                 output.Append(Csv(stamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm zzz", CultureInfo.InvariantCulture))).Append(',').Append(Csv(stamp.ToString("o"))).Append(',').Append(Csv(group.Key.Model)).Append(',').Append(group.Count()).Append(',').Append(group.Sum(e => e.Input)).Append(',').Append(group.Sum(e => e.Cached)).Append(',').Append(group.Sum(e => e.Output)).Append(',').Append(group.Sum(e => e.Reasoning)).Append(',').Append(group.Sum(e => e.Total)).Append("\r\n");

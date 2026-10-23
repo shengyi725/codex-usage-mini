@@ -1,4 +1,4 @@
-CODEX USAGE MINI v0.2.0 - WINDOWS PORTABLE
+CODEX USAGE MINI v0.3.0 - WINDOWS PORTABLE
 
 Keep CodexUsageMini.exe and CodexUsageMini.exe.config together.
 Install Codex for Windows, sign in with ChatGPT, and open the EXE.
@@ -8,8 +8,22 @@ ALLOWANCE
 Green: more than 50% left. Orange: 10-50%, inclusive. Red: below 10%.
 Gray: unavailable or stale. Refreshes every 60 seconds.
 
+ALLOWANCE HISTORY
+Choose Allowance in history for percentage recordings, a 0-100% chart,
+hourly/daily summaries, observed consumption in percentage points, and
+reset observations. Each reported window and account is kept separate.
+The widget records every minute while running, even during color preview.
+Recording begins now and does not use model turns or reset credits.
+A rollover means a reported window advanced after its previous deadline;
+early refills, other increases, and schedule changes are listed separately.
+Gaps may hide usage or additional resets. The cause of an early refill is
+not provided by Codex. Earlier percentages cannot be recreated from tokens.
+Export CSV saves all readings for the selected window and date range.
+Private allowance-history files use the existing data folder and 90-day
+retention. Unavailable readings and save failures are shown explicitly.
+
 HOURLY AND MODEL HISTORY
-Click the history icon or choose Hourly usage and models from the menu.
+Click the history icon or choose Allowance, activity, and models from the menu.
 Hours shows activity and tokens by hour. Models compares recorded input,
 cached input, output, totals, and event counts. Choose 24h, 7d, 30d, or 90d.
 Statistics are imported from local Codex logs and retained for 90 days.

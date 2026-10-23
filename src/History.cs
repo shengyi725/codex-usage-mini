@@ -70,6 +70,36 @@ namespace CodexUsageMini
         public int Events;
         public long Input, Cached, Output, Reasoning, Total;
     }
+    public sealed class HistoryRange
+    {
+        public DateTimeOffset Start { get; private set; }
+        public DateTimeOffset End { get; private set; }
+        public TimeZoneInfo Zone { get; private set; }
+        public int Days { get; private set; }
+        public bool Daily { get { return Days > 1; } }
+        public static HistoryRange Create(int days, DateTimeOffset now, TimeZoneInfo zone)
+        {
+            if (days != 1 && days != 7 && days != 30 && days != 90) throw new ArgumentOutOfRangeException("days");
+            if (zone == null) throw new ArgumentNullException("zone");
+            var today = TimeZoneInfo.ConvertTime(now, zone).Date;
+            return new HistoryRange { Days = days, End = now, Zone = zone, Start = days == 1 ? now.AddHours(-24) : DayStart(today.AddDays(1 - days), zone) };
+        }
+        internal static DateTimeOffset DayStart(DateTime date, TimeZoneInfo zone)
+        {
+            date = DateTime.SpecifyKind(date, DateTimeKind.Unspecified);
+            while (zone.IsInvalidTime(date)) date = date.AddMinutes(1);
+            var offset = zone.IsAmbiguousTime(date) ? zone.GetAmbiguousTimeOffsets(date).Max() : zone.GetUtcOffset(date);
+            return new DateTimeOffset(date, offset);
+        }
+        public string Description
+        {
+            get
+            {
+                var start = TimeZoneInfo.ConvertTime(Start, Zone); var end = TimeZoneInfo.ConvertTime(End, Zone);
+                return start.ToString(Daily ? "MMM d, yyyy" : "MMM d, yyyy HH:mm", CultureInfo.InvariantCulture) + " – " + end.ToString("MMM d, yyyy HH:mm zzz", CultureInfo.InvariantCulture) + (Daily ? " · includes today so far" : " · last 24 hours");
+            }
+        }
+    }
     public static class HistoryQuery
     {
         public static List<UsageEntry> Select(IEnumerable<UsageEntry> entries, DateTimeOffset start, DateTimeOffset end, bool includeInternal)
@@ -80,6 +110,30 @@ namespace CodexUsageMini
         public static List<UsageGroup> Hours(IEnumerable<UsageEntry> entries)
         {
             return entries.GroupBy(e => e.UtcTicks / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour).OrderBy(g => g.Key).Select(g => Aggregate(g, g.Key.ToString(CultureInfo.InvariantCulture), g.Key)).ToList();
+        }
+        public static List<UsageGroup> Timeline(IEnumerable<UsageEntry> entries, HistoryRange range)
+        {
+            var selected = Select(entries, range.Start, range.End, true);
+            var result = new List<UsageGroup>();
+            if (range.Daily)
+            {
+                var byDate = selected.ToLookup(e => TimeZoneInfo.ConvertTime(new DateTimeOffset(e.UtcTicks, TimeSpan.Zero), range.Zone).Date);
+                var first = TimeZoneInfo.ConvertTime(range.End, range.Zone).Date.AddDays(1 - range.Days);
+                for (int i = 0; i < range.Days; i++)
+                {
+                    var date = first.AddDays(i);
+                    result.Add(Aggregate(byDate[date], date.ToString("MMM d", CultureInfo.InvariantCulture), HistoryRange.DayStart(date, range.Zone).UtcDateTime.Ticks));
+                }
+            }
+            else
+            {
+                var byHour = selected.ToLookup(e => e.UtcTicks / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour);
+                long first = range.Start.UtcDateTime.Ticks / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour;
+                long last = (range.End.UtcDateTime.Ticks - 1) / TimeSpan.TicksPerHour * TimeSpan.TicksPerHour;
+                for (long ticks = first; ticks <= last; ticks += TimeSpan.TicksPerHour)
+                    result.Add(Aggregate(byHour[ticks], TimeZoneInfo.ConvertTime(new DateTimeOffset(ticks, TimeSpan.Zero), range.Zone).ToString("HH", CultureInfo.InvariantCulture), ticks));
+            }
+            return result;
         }
         public static List<UsageGroup> Models(IEnumerable<UsageEntry> entries)
         {

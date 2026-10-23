@@ -1,6 +1,8 @@
 # Codex Usage Mini
 
-A small Windows widget for Codex allowance, with private hourly history and model usage statistics.
+<img src="assets/codex-usage-mini-horizontal-bold.png" width="128" alt="Codex Usage Mini icon" />
+
+A small Windows widget for Codex allowance, with private percentage and reset history, hourly activity, and model usage statistics.
 
 ![Widget](docs/preview-theme-dark.png)
 
@@ -10,9 +12,9 @@ Click **Percentage only** beside the gear to collapse to a readable percentage-o
 
 ## Run
 
-[Download the v0.2.0 portable Windows app](https://github.com/shengyi725/codex-usage-mini/releases/download/v0.2.0/CodexUsageMini-v0.2.0-portable.zip).
+[Download the v0.3.0 portable Windows app](https://github.com/shengyi725/codex-usage-mini/releases/download/v0.3.0/CodexUsageMini-v0.3.0-portable.zip).
 
-Install Codex for Windows (desktop app or native CLI), sign in with your ChatGPT account, then open `dist\CodexUsageMini.exe`. For a portable build, extract `CodexUsageMini-v0.2.0-portable.zip` and open the executable next to its `.config` file. No API key or installer is needed.
+Install Codex for Windows (desktop app or native CLI), sign in with your ChatGPT account, then open `dist\CodexUsageMini.exe`. For a portable build, extract `CodexUsageMini-v0.3.0-portable.zip` and open the executable next to its `.config` file. No API key or installer is needed.
 
 Requires Windows 10/11 and .NET Framework 4.8. The app uses native WPF and Windows' built-in .NET Framework compiler. No browser, Node.js, Python, or .NET SDK is needed to run or build it.
 
@@ -37,14 +39,16 @@ A manually entered **Plan expiry** remains a separate fallback, labeled `(entere
 
 ## Hourly and model history
 
-Click the history icon, or right-click and choose **Hourly usage and models**.
+Click the history icon, or right-click and choose **Allowance, activity, and models**.
 
-- **Hours:** tokens and usage-event frequency by hour, active-hour count, peak hour, and an hourly table. The 24-hour view includes partial starting/ending hours. For 7-, 30-, and 90-day ranges, the chart shows the hour-of-day pattern across that range.
+- **Activity:** the last 24 hours use hourly bars, an active-hour count, a peak hour, and an hourly table, including partial starting/ending hours. The 7-, 30-, and 90-day ranges use one bar and table row per local calendar date, an active-day count, and a peak day. Day ranges include today so far plus the previous 6, 29, or 89 days, starting at local midnight. Dates with no observed events remain visible. The exact selected range appears above the totals and applies to model statistics and CSV export too.
 - **Models:** recorded input, cached input, output, total tokens, event counts, and each model's share of observed tokens.
 - **Internal review models:** hidden by default and available through an explicit checkbox.
 - **Export CSV:** saves hourly totals by model for the full selected range, using both local and UTC timestamps.
 
 ![Hourly history with synthetic data](docs/preview-history-hours.png)
+
+![Daily history over 30 days with synthetic data](docs/preview-history-30-days.png)
 
 ![Model history with synthetic data](docs/preview-history-models.png)
 
@@ -53,6 +57,20 @@ Statistics use the existing local `sessions` and `archived_sessions` logs under 
 Where available, per-response `token_usage_record` entries take precedence. Older files use differences between cumulative token counters, with duplicate protection. The importer does not mix diverging UI counters into an existing per-response stream. Model changes, incomplete trailing lines, copied/archived logs, counter resets, and incremental restarts are handled explicitly.
 
 Cached input is included in input; reasoning is included in output. Neither is added to total a second time. These are observed tokens, **not per-model subscription-quota charges**. The quota endpoint does not provide model multipliers that would support a reliable downgrade-savings estimate.
+
+## Allowance history and reset observations
+
+![Allowance history with synthetic data](docs/preview-history-allowance.png)
+
+Open history and choose **Allowance**. This separate record saves the remaining percentage, reported reset deadline, and available reset credits from each live refresh, once a minute while the widget is running. It starts now; prior allowance percentages cannot be reconstructed from token totals. Recording uses the existing allowance connection and does not run model turns or spend reset credits.
+
+Choose a reported window to view a fixed 0–100% chart, hourly or daily summaries for 24 hours / 7 / 30 / 90 days, observed percentage-point consumption, and reset observations. Primary and secondary windows and different accounts are kept separate. **Export CSV** saves every observation in the selected window and range, with UTC/local timestamps and unavailable states.
+
+A **window rollover** means the reported deadline advanced after the previous deadline; an **early replenishment** means both the percentage and deadline increased before that deadline. Other percentage increases and schedule changes are listed separately. The service does not supply the cause of an early replenishment. Events are bounded by observation times, and recording gaps may hide additional resets, so counts are minimum observations. When at least two rollovers are observed, their average observed separation is shown.
+
+Only consecutive valid readings within three minutes in the same window contribute to **observed drop**, measured in percentage points (pp). Unavailable readings, stale reset data, time with the widget closed, and reset transitions create gaps. Consumption across these gaps is unknown. Failed saves display a notice in the Allowance view.
+
+Private daily JSONL files are stored in `allowance-history/` inside the app's existing data folder, normally `E:\Users\<username>\AppData\Local\CodexUsageMini`, and retained for 90 days. They contain allowance observations and a hashed account key, with no credentials or chat text. These records and personal CSV exports are excluded from Git and portable packages.
 
 ## Appearance
 
@@ -99,7 +117,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\build.ps1 -Test
 .\dist\CodexUsageMini.exe --smoke .\docs
 ```
 
-The deterministic suite runs 103 checks covering allowance thresholds, protocol failures/cancellation, token accounting, mixed log formats, duplicate/copy protection, partial writes, counter resets, history persistence, UTF-8, retention, theme/appearance limits, and account-bound plan expiry. Native smoke checks render all themes, hourly/model views and settings, and verify automatic subscription presentation, compact colors/stale state, a fixed readable compact size, click-to-expand restoration, proportional full-view scaling, opacity, pinning, hiding, and restoring. Screenshots use synthetic data and test runs do not alter personal settings.
+The deterministic suite covers allowance thresholds, protocol failures/cancellation, token accounting, mixed log formats, duplicate/copy protection, partial writes, counter resets, history persistence, UTF-8, retention, theme/appearance limits, account-bound plan expiry, local calendar ranges, missing dates, midnight boundaries, and daylight-saving transitions. Native smoke checks render all themes, hourly/model views, all three daily ranges, and settings, and verify automatic subscription presentation, compact colors/stale state, a fixed readable compact size, click-to-expand restoration, proportional full-view scaling, opacity, pinning, hiding, and restoring. Screenshots use synthetic data and test runs do not alter personal settings.
 
 Optional live checks:
 

@@ -68,6 +68,53 @@ internal static class HistoryTests
         };
         check(HistoryQuery.Select(boundary, Now.AddDays(-1), Now, false).Sum(e => e.Total) == 30, "Range filter and internal-model exclusion");
         check(HistoryQuery.Select(boundary, Now.AddDays(-1), Now, true).Sum(e => e.Total) == 50, "Internal models can be included explicitly");
+        var east = TimeZoneInfo.CreateCustomTimeZone("Test UTC+08", TimeSpan.FromHours(8), "Test UTC+08", "Test UTC+08");
+        var clock = new DateTimeOffset(2026, 10, 22, 14, 30, 0, TimeSpan.FromHours(8));
+        foreach (int days in new[] { 7, 30, 90 })
+        {
+            var period = HistoryRange.Create(days, clock, east);
+            check(period.Start == new DateTimeOffset(clock.Date.AddDays(1 - days), clock.Offset) && period.End == clock, days + "-day range starts at local midnight and includes today");
+            var events = new[] {
+                new UsageEntry { UtcTicks = period.Start.AddTicks(-1).UtcDateTime.Ticks, Total = 1 },
+                new UsageEntry { UtcTicks = period.Start.UtcDateTime.Ticks, Total = 10, Input = 8, Cached = 3, Output = 2, Reasoning = 1 },
+                new UsageEntry { UtcTicks = period.Start.AddHours(23).AddMinutes(59).UtcDateTime.Ticks, Total = 20 },
+                new UsageEntry { UtcTicks = period.Start.AddDays(1).UtcDateTime.Ticks, Total = 30 },
+                new UsageEntry { UtcTicks = clock.AddMinutes(-1).UtcDateTime.Ticks, Total = 40 },
+                new UsageEntry { UtcTicks = clock.AddMinutes(-1).UtcDateTime.Ticks, Total = 99, Internal = true },
+                new UsageEntry { UtcTicks = clock.UtcDateTime.Ticks, Total = 100 },
+                new UsageEntry { UtcTicks = clock.AddDays(1).UtcDateTime.Ticks, Total = 1000 }
+            };
+            var picked = HistoryQuery.Select(events, period.Start, period.End, false);
+            var daily = HistoryQuery.Timeline(picked, period);
+            check(picked.Sum(e => e.Total) == 100 && daily.Sum(g => g.Total) == 100 && daily.Sum(g => g.Events) == 4, days + "-day cards, chart, table and export share exact range boundaries");
+            check(daily.Count == days && daily[0].Total == 30 && daily[1].Total == 30 && daily[days - 1].Total == 40, days + "-day buckets follow local dates rather than UTC dates or hour of day");
+            check(daily.Count(g => g.Events == 0) == days - 3 && daily[0].UtcTicks == period.Start.UtcDateTime.Ticks, days + "-day timeline preserves missing dates in chronological order");
+            check(daily.Sum(g => g.Input) == 8 && daily.Sum(g => g.Cached) == 3 && daily.Sum(g => g.Output) == 2 && daily.Sum(g => g.Reasoning) == 1, days + "-day aggregation preserves token categories");
+            check(HistoryQuery.Timeline(new UsageEntry[0], period).Count == days, days + "-day empty timeline keeps every date");
+        }
+        var rolling = HistoryRange.Create(1, clock, east);
+        check(rolling.End - rolling.Start == TimeSpan.FromHours(24) && HistoryQuery.Timeline(new UsageEntry[0], rolling).Count == 25, "24-hour range retains both partial endpoint hours");
+        var midnight = HistoryRange.Create(1, new DateTimeOffset(2026, 10, 22, 0, 0, 0, TimeSpan.FromHours(8)), east);
+        check(HistoryQuery.Timeline(new UsageEntry[0], midnight).Count == 24, "Exact hourly endpoint does not create a future empty hour");
+        var newYear = HistoryRange.Create(7, new DateTimeOffset(2027, 1, 2, 0, 0, 0, TimeSpan.FromHours(8)), east);
+        check(newYear.Start == new DateTimeOffset(2026, 12, 27, 0, 0, 0, TimeSpan.FromHours(8)), "Calendar ranges cross year boundaries correctly");
+        var west = TimeZoneInfo.CreateCustomTimeZone("Test UTC-07", TimeSpan.FromHours(-7), "Test UTC-07", "Test UTC-07");
+        var westernRange = HistoryRange.Create(7, clock, west);
+        check(TimeZoneInfo.ConvertTime(westernRange.Start, west).Date == new DateTime(2026, 10, 15), "Range uses the selected time zone rather than UTC or the machine zone");
+        var dst = TimeZoneInfo.FindSystemTimeZoneById("Eastern Standard Time");
+        foreach (var date in new[] { new DateTimeOffset(2026, 3, 10, 12, 0, 0, TimeSpan.FromHours(-4)), new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.FromHours(-5)) })
+        {
+            var period = HistoryRange.Create(7, date, dst);
+            var dates = HistoryQuery.Timeline(new UsageEntry[0], period);
+            double expected = date.Month == 3 ? 23 : 25;
+            check(dates.Count == 7 && dates.Zip(dates.Skip(1), (a, b) => (b.UtcTicks - a.UtcTicks) / (double)TimeSpan.TicksPerHour).Contains(expected), "Daily boundaries follow daylight-saving changes: " + date.Month);
+        }
+        var repeated = HistoryRange.Create(7, new DateTimeOffset(2026, 11, 3, 12, 0, 0, TimeSpan.FromHours(-5)), dst);
+        var repeatedHours = new[] {
+            new UsageEntry { UtcTicks = new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-4)).UtcDateTime.Ticks, Total = 10 },
+            new UsageEntry { UtcTicks = new DateTimeOffset(2026, 11, 1, 1, 30, 0, TimeSpan.FromHours(-5)).UtcDateTime.Ticks, Total = 20 }
+        };
+        check(HistoryQuery.Timeline(repeatedHours, repeated).Single(g => g.Events > 0).Total == 30, "Repeated daylight-saving hours belong to one local day without dropping events");
         string smallDb = Path.Combine(root, "budget.json"); var chunked = new HistoryImporter(smallDb); ImportResult result; int passes = 0;
         do { result = chunked.ImportFiles(new[] { path }, Now, 32, CancellationToken.None); passes++; } while (result.More && passes < 50);
         check(chunked.Snapshot().Count == 4 && passes > 1 && passes < 50, "Budgeted incremental import completes without loss");

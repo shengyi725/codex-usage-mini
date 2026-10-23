@@ -17,3 +17,5 @@ auth.json
 usage-history.json*
 preferences.json*
 Codex-usage-*.csv
+allowance-history/
+Codex-allowance-*.csv

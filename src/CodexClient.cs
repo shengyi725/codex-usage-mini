@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -74,7 +74,7 @@ namespace CodexUsageMini
                     try
                     {
                         var serializer = new JavaScriptSerializer();
-                        await Send(process, new { id = 1, method = "initialize", @params = new { clientInfo = new { name = "codex_usage_mini", title = "Codex Usage Mini", version = "0.2.0" } } });
+                        await Send(process, new { id = 1, method = "initialize", @params = new { clientInfo = new { name = "codex_usage_mini", title = "Codex Usage Mini", version = "0.3.0" } } });
                         await Response(process, 1, serializer, deadline.Token);
                         await Send(process, new { method = "initialized", @params = new { } });
                         await Send(process, new { id = 2, method = "account/rateLimits/read" });

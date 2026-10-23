@@ -11,6 +11,7 @@ namespace CodexUsageMini
 
     public sealed class QuotaWindow
     {
+        public string WindowKey;
         public string BucketId;
         public string BucketName;
         public string Label;
@@ -24,6 +25,7 @@ namespace CodexUsageMini
         public readonly List<QuotaWindow> Windows = new List<QuotaWindow>();
         public string Plan;
         public string AccountKey;
+        public int? AvailableResets;
         public bool Blocked;
         public DateTimeOffset FetchedAt;
         public QuotaWindow Limiting { get { return Windows.OrderBy(w => w.Remaining).FirstOrDefault(); } }
@@ -82,6 +84,9 @@ namespace CodexUsageMini
             var snapshot = new UsageSnapshot { FetchedAt = now, Blocked = Value(result, "ordinaryUsageAllowed") is bool && !(bool)Value(result, "ordinaryUsageAllowed") };
             string accountId = Value(result, "accountId") as string;
             snapshot.AccountKey = String.IsNullOrEmpty(accountId) ? null : HistoryImporter.Hash(accountId);
+            double resetCount;
+            var resetCredits = Obj(result, "rateLimitResetCredits");
+            if (Number(Value(resetCredits, "availableCount"), out resetCount) && resetCount >= 0 && resetCount <= Int32.MaxValue && resetCount == Math.Floor(resetCount)) snapshot.AvailableResets = (int)resetCount;
             var buckets = Obj(result, "rateLimitsByLimitId");
             if (buckets != null && buckets.Count > 0)
             {
@@ -127,7 +132,7 @@ namespace CodexUsageMini
                 try { resets = new DateTimeOffset(1970, 1, 1, 0, 0, 0, TimeSpan.Zero).AddSeconds(unix); }
                 catch (ArgumentOutOfRangeException) { }
             }
-            data.Windows.Add(new QuotaWindow { BucketId = id, BucketName = name, Label = WindowName(minutes, fallback), DurationMinutes = minutes, Remaining = Math.Max(0, Math.Min(100, 100 - percent)), ResetsAt = resets });
+            data.Windows.Add(new QuotaWindow { WindowKey = fallback.ToLowerInvariant(), BucketId = id, BucketName = name, Label = WindowName(minutes, fallback), DurationMinutes = minutes, Remaining = Math.Max(0, Math.Min(100, 100 - percent)), ResetsAt = resets });
         }
 
         private static bool Number(object value, out double number)
@@ -150,7 +155,7 @@ namespace CodexUsageMini
         public static UsageSnapshot Demo(double remaining)
         {
             var data = new UsageSnapshot { Plan = "Preview", FetchedAt = DateTimeOffset.Now };
-            data.Windows.Add(new QuotaWindow { BucketId = "codex", BucketName = "Codex", Label = "Weekly", Remaining = remaining, DurationMinutes = 10080, ResetsAt = DateTimeOffset.Now.AddDays(3).AddHours(4) });
+            data.Windows.Add(new QuotaWindow { WindowKey = "primary", BucketId = "codex", BucketName = "Codex", Label = "Weekly", Remaining = remaining, DurationMinutes = 10080, ResetsAt = DateTimeOffset.Now.AddDays(3).AddHours(4) });
             return data;
         }
     }

@@ -71,6 +71,7 @@ internal static class CoreTests
             Check(UsageModel.Countdown(Now.AddSeconds(2), Now) == "1m", "Countdown under a minute");
             Check(UsageModel.Countdown(Now, Now) == "Refreshing soon", "Reset doesn't invent fresh quota");
             HistoryTests.Run(Check);
+            AllowanceTests.Run(Check);
             SubscriptionTests.Run(Check);
             ProtocolTests().GetAwaiter().GetResult();
             Console.WriteLine("PASS: " + passed + " allowance, protocol, history, subscription, and preference checks.");
